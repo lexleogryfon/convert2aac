@@ -12,8 +12,51 @@ from pathlib import Path
 from types import MappingProxyType
 import sys, subprocess, os, shutil, argparse, time, logging
 
-pool = []
+
 logging.basicConfig(filename='convert.log')
+
+class My_Event_loop_queue:
+
+    def __init__(self):
+        self.pool = []
+
+    def append(self, job):
+        '''
+        appends task to pool & give up control to main program
+        doesn't block until 6 tasks in pool
+        block if 6 tasks running in pool, wait until at least 1 completed, then remove it from pool and give back control to main program (e.g. for copy files and other stuff)
+        '''
+        if len(self.pool) < 7:
+            self.pool.append(job)
+        self.run_loop(until=6)
+                    
+    def run_until_completion(self):
+        self.run_loop(until=1)
+       
+
+    def run_loop(self, until):
+        
+        while len(self.pool) >= until:
+            for task in self.pool:
+                if task.poll() is None:
+                    time.sleep(0.1)
+                elif task.returncode is 0:
+                    self.pool.remove(task)
+                else:
+                    #log exit code of task with task args                
+                    outs, errs = task.communicate()
+                    err = str(task.returncode) + ' '.join(task.args) + '\n' + outs + '\n' + errs + '\n' + 'FILE {} will be copied'.format(task.input_file)
+                    logging.error(msg=err)
+                    #copy file in case it can't be converted by ffmpeg
+                    shutil.copy2(src=str(task.input_file), dst=str(task.output_prefix_folder))
+                    #remove invalid file
+                    os.remove(str(task.output_file_path))
+                    #remove task from pool
+                    self.pool.remove(task)
+                    
+        
+        
+
 
 
 def scan(path_string, ext_dict_param={}):
@@ -60,25 +103,10 @@ def convert_file(input_file, output_prefix_folder):
         #time.sleep(0.1)
     #print(p.poll())
 #    if p.returncode != 0: raise CalledProcessError(input_file, p, p.returncode )
-    global pool
-    if len(pool) < 7:
-        pool.append(p)
-    
-    while len(pool) >= 6:
-        for task in pool:
-            if task.poll() is None:
-                time.sleep(0.1)
-            elif task.returncode is 0:
-                pool.remove(task)
-            else:
-                outs, errs = task.communicate()
-                err = str(task.returncode) + ' '.join(task.args) + outs + errs
-                logging.error(msg=err)
-                pool.remove(task)
-                #log exit code of task with task args
-                #remove task from pool
-            
-    
+    p.input_file = input_file
+    p.output_prefix_folder = output_prefix_folder
+    p.output_file_path = output_file_path
+    return p
 
 def copy_file(input_file, output_prefix_folder):
     '''
@@ -101,7 +129,7 @@ def queue(task):
 
 
 def main(argv):
-
+    global pool
     
     if len(argv) is 1:
         argv.append("-h")   
@@ -113,7 +141,7 @@ def main(argv):
 
     if arguments.scan:
         
-    
+
         files = scan(arguments.scan)
         #print extensions sorted by number of files
         for ext, count in sorted( [(extension, len(tuple_of_files)) for extension, tuple_of_files in  files.items()], 
@@ -132,20 +160,21 @@ def main(argv):
         print(arguments.input, arguments.output)
         
         ALLOWED_EXTENSIONS = ('.mp3','.wav','.ogg', '.wma','.flac')
-        #o_p_f = Path('./subfolder/')
         files = scan(arguments.input)
         o_p_f = Path(arguments.output)
-        
+        evloop = My_Event_loop_queue()
     
         for key,values in files.items():
             #print('key: ', key)
             for item in values:
                 # print(item)
                 if key in ALLOWED_EXTENSIONS:
-                    convert_file(input_file=item, output_prefix_folder=o_p_f)
+                    evloop.append( convert_file(input_file=item, output_prefix_folder=o_p_f) )
                 else:
                     copy_file(input_file=item, output_prefix_folder=o_p_f)
 
+        #wait until pool exhaust of tasks
+        evloop.run_until_completion()
 
 
     #DONE store list of filenames, paths in ext_dict, along with extension number occurence ; we may not really count number of extension occurence, but just count a length of file list with particular extension
