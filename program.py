@@ -1,5 +1,5 @@
 #!/usr/bin/env nix-shell
-#!nix-shell -p python35 -i python3.5
+#!nix-shell -p python35 python35Packages.psutil -i python3.5
 
 '''
 made in wingIde 6 pro
@@ -10,7 +10,12 @@ lex(c)
 
 from pathlib import Path
 from types import MappingProxyType
-import sys, subprocess, os, shutil, argparse, time, logging
+import sys, subprocess, os, shutil, argparse, time, logging, re, copy
+import psutil
+#from threading  import Thread
+
+
+
 
 
 logging.basicConfig(filename='convert.log')
@@ -26,9 +31,9 @@ class My_Event_loop_queue:
         doesn't block until 6 tasks in pool
         block if 6 tasks running in pool, wait until at least 1 completed, then remove it from pool and give back control to main program (e.g. for copy files and other stuff)
         '''
-        if len(self.pool) < 7:
+        if len(self.pool) < 9:
             self.pool.append(job)
-        self.run_loop(until=6)
+        self.run_loop(until=8)
                     
     def run_until_completion(self):
         self.run_loop(until=1)
@@ -40,22 +45,48 @@ class My_Event_loop_queue:
             for task in self.pool:
                 if task.poll() is None:
                     time.sleep(0.1)
+                    #work around ffmpeg bug, when ffmpeg process hang out
+                    #check for [mp3 @ 0x14aaa20] overread, skip -4 enddists: -1 -1
+                    if os.getloadavg()[0] < 3:
+                        #print(os.getloadavg()[0])
+                        #outs, errs = task.communicate() #BUG sets exitcode to 0, blocking
+                        pattern = re.compile(r"^.*mp3.*overread.*skip.*enddists.*$",  re.MULTILINE)
+                        # print(type(errs), type(outs))
+                        while True:
+                            # outline = task.stdout.readline()
+                            errline = task.stderr.readline()
+                            #if re.search(pattern, outline) or re.search(pattern, errline):
+                            if re.search(pattern, errline):
+                                #task.poll()
+                                #print("match")
+                                task.kill()
+                                task.poll()
+                                logging.warning(msg='ffmpeg output found to contain "^.*mp3.*overread.*skip.*enddists.*$" errors, to prevent process from infinite loop we killing it {}'.format(
+                                str(task.returncode) + ' ' + str(task.pid) + ' '.join(task.args) + '\n'))
+                            else:
+                                break
+                            
+                            #if not outline:
+                                #break
+                            if not errline:
+                                break                            
+
+                                
                 elif task.returncode is 0:
                     self.pool.remove(task)
                 else:
                     #log exit code of task with task args                
                     outs, errs = task.communicate()
-                    err = str(task.returncode) + ' '.join(task.args) + '\n' + outs + '\n' + errs + '\n' + 'FILE {} will be copied'.format(task.input_file)
+                    err = str(task.returncode) + ' '.join(task.args) + '\n' + outs + '\n' + errs + '\n' + 'FILE {} will be copied\n\n'.format(task.input_file)
                     logging.error(msg=err)
                     #copy file in case it can't be converted by ffmpeg
-                    shutil.copy2(src=str(task.input_file), dst=str(task.output_prefix_folder))
+                    copy_file(input_file=task.input_file, output_prefix_folder=task.output_prefix_folder_original)
+                    #shutil.copy2(src=str(task.input_file), dst=str(task.output_prefix_folder))
                     #remove invalid file
-                    os.remove(str(task.output_file_path))
+                    if task.output_file_path.exists(): os.remove(str(task.output_file_path))
                     #remove task from pool
                     self.pool.remove(task)
-                    
-        
-        
+
 
 
 
@@ -88,6 +119,7 @@ def convert_file(input_file, output_prefix_folder):
     '''
 
     devnull = open('/dev/null', 'w')
+    output_prefix_folder_original = copy.deepcopy(output_prefix_folder)
     output_prefix_folder = './' / output_prefix_folder / str(input_file.parent)[1:]
     # print('new files will be saved in ', output_prefix_folder)
     
@@ -95,7 +127,7 @@ def convert_file(input_file, output_prefix_folder):
     output_file_name = str(input_file.stem) + '.m4a'
     output_file_path = output_prefix_folder / output_file_name
     #spawn non blocking async background process
-    p = subprocess.Popen(['/home/lex/.nix-profile/bin/ffmpeg', '-threads', '1', '-i', str(input_file), '-vn',   '-c:a', 'libfdk_aac', '-profile:a', 'aac_he_v2', '-b:a', '32k', '-y', str(output_file_path)], universal_newlines=True, stdout=subprocess.PIPE , stderr=subprocess.PIPE)
+    p = subprocess.Popen(['/home/lex/.nix-profile/bin/ffmpeg', '-threads', '1', '-i', str(input_file), '-vn',   '-c:a', 'libfdk_aac', '-profile:a', 'aac_he_v2', '-b:a', '32k', '-y', '-nostdin', str(output_file_path)], universal_newlines=True, stdout=subprocess.PIPE , stderr=subprocess.PIPE)
 
     # blocking wait until completion, to get exit code
     #while p.poll() is None:
@@ -104,6 +136,7 @@ def convert_file(input_file, output_prefix_folder):
     #print(p.poll())
 #    if p.returncode != 0: raise CalledProcessError(input_file, p, p.returncode )
     p.input_file = input_file
+    p.output_prefix_folder_original = output_prefix_folder_original
     p.output_prefix_folder = output_prefix_folder
     p.output_file_path = output_file_path
     return p
@@ -117,7 +150,7 @@ def copy_file(input_file, output_prefix_folder):
     
     output_prefix_folder.mkdir(exist_ok=True, parents=True)
     #copy_file
-    shutil.copy2(src=str(input_file), dst=str(output_prefix_folder))
+    shutil.copy2(src=str(input_file), dst=str(output_prefix_folder), follow_symlinks=False)
 
 
 def queue(task):
@@ -188,8 +221,13 @@ def main(argv):
 
     #DONE add argparse CLI parameters
     #DONE add logging for python app itself, for ffmpeg & if ffmpeg exit code != 0
-
-
+    #DONE FIX copy symlinks, don't follow them
+    #DONE ffmpeg non-interactive -nostdin
+    #better log output 
+    #catch all errors, log them and attempt to continue on next file
+    #implement pause and continue, save file? remember progress
+    #use async subprocess, async pipes, | threads, multiprocessing
+    #throw exceptions from ffmpeg class
 
 
 
