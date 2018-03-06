@@ -18,12 +18,13 @@ import psutil
 
 
 
-logging.basicConfig(filename='convert.log')
 
 class My_Event_loop_queue:
 
     def __init__(self):
         self.pool = []
+        self.wlog = logging.getLogger('warning_logger')
+        self.dlog = logging.getLogger('debug_logger')
 
     def append(self, job):
         '''
@@ -55,21 +56,26 @@ class My_Event_loop_queue:
                         while True:
                             # outline = task.stdout.readline()
                             errline = task.stderr.readline()
+                            #if not outline:
+                                #break
+                            if not errline:
+                                break                             
                             #if re.search(pattern, outline) or re.search(pattern, errline):
                             if re.search(pattern, errline):
                                 #task.poll()
                                 #print("match")
                                 task.kill()
                                 task.poll()
-                                logging.warning(msg='ffmpeg output found to contain "^.*mp3.*overread.*skip.*enddists.*$" errors, to prevent process from infinite loop we killing it {}'.format(
-                                str(task.returncode) + ' ' + str(task.pid) + ' '.join(task.args) + '\n'))
-                            else:
+                                #logging.debug(
+                                    #msg='ffmpeg output found to contain "^.*mp3.*overread.*skip.*enddists.*$" errors, to prevent process from infinite loop we killing it {}'.format(
+                                #str(task.returncode) + ' ' + str(task.pid) + ' '.join(task.args) + '\n'))
+                                self.wlog.warning(
+                                    msg="""ffmpeg output found to contain "mp3 overread" errors, to prevent process from infinite loop we killing it for file {} """.format(task.input_file))                                
                                 break
-                            
-                            #if not outline:
+                            #else:
                                 #break
-                            if not errline:
-                                break                            
+                            
+                           
 
                                 
                 elif task.returncode is 0:
@@ -77,8 +83,11 @@ class My_Event_loop_queue:
                 else:
                     #log exit code of task with task args                
                     outs, errs = task.communicate()
-                    err = str(task.returncode) + ' '.join(task.args) + '\n' + outs + '\n' + errs + '\n' + 'FILE {} will be copied\n\n'.format(task.input_file)
-                    logging.error(msg=err)
+                    err = 'task: ' + ' '.join(task.args) + '\n returncode: ' + str(task.returncode) +  '\n stdout: ' + outs + '\n stderr: ' + errs
+                    self.dlog.debug(msg=err)
+                    
+                    self.wlog.error(msg= 'ffmpeg failed to convert {} , file will be copied'.format(task.input_file))
+                    
                     #copy file in case it can't be converted by ffmpeg
                     copy_file(input_file=task.input_file, output_prefix_folder=task.output_prefix_folder_original)
                     #shutil.copy2(src=str(task.input_file), dst=str(task.output_prefix_folder))
@@ -153,12 +162,22 @@ def copy_file(input_file, output_prefix_folder):
     shutil.copy2(src=str(input_file), dst=str(output_prefix_folder), follow_symlinks=False)
 
 
-def queue(task):
-    '''accept function as argument'''
-    
-    
 
-    pass
+
+
+
+def setup_logger(name, log_file, formatter, level=logging.INFO):
+    """Function setup as many loggers as you want"""
+
+    handler = logging.FileHandler(log_file)        
+    handler.setFormatter(formatter)
+
+    logger = logging.getLogger(name)
+    logger.setLevel(level)
+    logger.addHandler(handler)
+
+    return logger
+
 
 
 def main(argv):
@@ -171,7 +190,18 @@ def main(argv):
     parser.add_argument("-i", "--input", help="input folder")
     parser.add_argument("-o", "--output", help="output folder")
     arguments = parser.parse_args()
+    
+    #logging.basicConfig(filename='debug_convert.log', level=logging.DEBUG, filemode='w', format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    #logging.basicConfig(filename='minimal_convert.log', level=logging.WARNING, filemode='w', format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    # logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
+    dlog = setup_logger('debug_logger', 'debug_convert.log', level=logging.DEBUG, formatter= logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+    
+    # second file logger
+    wlog = setup_logger('warning_logger', 'warning_convert.log', level=logging.WARNING, formatter= logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+
+
+    
     if arguments.scan:
         
 
@@ -190,12 +220,14 @@ def main(argv):
     #convert_file(input_file=i_f, output_prefix_folder=o_p_f)
 
     if arguments.input and arguments.output:
-        print(arguments.input, arguments.output)
+        
         
         ALLOWED_EXTENSIONS = ('.mp3','.wav','.ogg', '.wma','.flac')
         files = scan(arguments.input)
         o_p_f = Path(arguments.output)
         evloop = My_Event_loop_queue()
+        dlog.info('conversion started')
+        
     
         for key,values in files.items():
             #print('key: ', key)
@@ -208,7 +240,9 @@ def main(argv):
 
         #wait until pool exhaust of tasks
         evloop.run_until_completion()
-
+        print('conversion is done')
+        dlog.info('conversion is done')
+        
 
     #DONE store list of filenames, paths in ext_dict, along with extension number occurence ; we may not really count number of extension occurence, but just count a length of file list with particular extension
     #DONE return immutable value in scan()
@@ -223,12 +257,16 @@ def main(argv):
     #DONE add logging for python app itself, for ffmpeg & if ffmpeg exit code != 0
     #DONE FIX copy symlinks, don't follow them
     #DONE ffmpeg non-interactive -nostdin
-    #better log output 
+    #DONE better log output
     #catch all errors, log them and attempt to continue on next file
+    
+    #print verbose stats output in the end, like timing, number of errors, files copied, files converted, saved space 
     #implement pause and continue, save file? remember progress
     #use async subprocess, async pipes, | threads, multiprocessing
     #throw exceptions from ffmpeg class
-
+    #reStructed text docstrings
+    #readme.md
+    #flymake check
 
 
 if __name__ == "__main__":
