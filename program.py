@@ -1,5 +1,5 @@
 #!/usr/bin/env nix-shell
-#!nix-shell -p python35 python35Packages.psutil -i python3.5
+#!nix-shell ./shell.nix --pure -I https://github.com/NixOS/nixpkgs-channels/archive/1dcd022f01b251b1656f349dcf749c0890de2799.tar.gz -i python3.5
 
 '''
 made in wingIde 6 pro
@@ -11,12 +11,6 @@ lex(c)
 from pathlib import Path
 from types import MappingProxyType
 import sys, subprocess, os, shutil, argparse, time, logging, re, copy
-import psutil
-#from threading  import Thread
-
-
-
-
 
 
 class My_Event_loop_queue:
@@ -44,59 +38,60 @@ class My_Event_loop_queue:
         
         while len(self.pool) >= until:
             for task in self.pool:
-                if task.poll() is None:
-                    time.sleep(0.1)
-                    #work around ffmpeg bug, when ffmpeg process hang out
-                    #check for [mp3 @ 0x14aaa20] overread, skip -4 enddists: -1 -1
-                    if os.getloadavg()[0] < 3:
-                        #print(os.getloadavg()[0])
-                        #outs, errs = task.communicate() #BUG sets exitcode to 0, blocking
-                        pattern = re.compile(r"^.*mp3.*overread.*skip.*enddists.*$",  re.MULTILINE)
-                        # print(type(errs), type(outs))
-                        while True:
-                            # outline = task.stdout.readline()
-                            errline = task.stderr.readline()
-                            #if not outline:
-                                #break
-                            if not errline:
-                                break                             
-                            #if re.search(pattern, outline) or re.search(pattern, errline):
-                            if re.search(pattern, errline):
-                                #task.poll()
-                                #print("match")
-                                task.kill()
-                                task.poll()
-                                #logging.debug(
-                                    #msg='ffmpeg output found to contain "^.*mp3.*overread.*skip.*enddists.*$" errors, to prevent process from infinite loop we killing it {}'.format(
-                                #str(task.returncode) + ' ' + str(task.pid) + ' '.join(task.args) + '\n'))
-                                self.wlog.warning(
-                                    msg="""ffmpeg output found to contain "mp3 overread" errors, to prevent process from infinite loop we killing it for file {} """.format(task.input_file))                                
-                                break
-                            #else:
-                                #break
-                            
-                           
-
-                                
-                elif task.returncode is 0:
-                    self.pool.remove(task)
-                else:
-                    #log exit code of task with task args                
-                    outs, errs = task.communicate()
-                    err = 'task: ' + ' '.join(task.args) + '\n returncode: ' + str(task.returncode) +  '\n stdout: ' + outs + '\n stderr: ' + errs
-                    self.dlog.debug(msg=err)
-                    
-                    self.wlog.error(msg= 'ffmpeg failed to convert {} , file will be copied'.format(task.input_file))
-                    
-                    #copy file in case it can't be converted by ffmpeg
-                    copy_file(input_file=task.input_file, output_prefix_folder=task.output_prefix_folder_original)
-                    #shutil.copy2(src=str(task.input_file), dst=str(task.output_prefix_folder))
-                    #remove invalid file
-                    if task.output_file_path.exists(): os.remove(str(task.output_file_path))
-                    #remove task from pool
-                    self.pool.remove(task)
-
-
+                try:
+                    if task.poll() is None:
+                        time.sleep(0.1)
+                        #work around ffmpeg bug, when ffmpeg process hang out
+                        #check for [mp3 @ 0x14aaa20] overread, skip -4 enddists: -1 -1
+                        if os.getloadavg()[0] < 3:
+                            #print(os.getloadavg()[0])
+                            #outs, errs = task.communicate() #BUG sets exitcode to 0, blocking
+                            pattern = re.compile(r"^.*mp3.*overread.*skip.*enddists.*$",  re.MULTILINE)
+                            # print(type(errs), type(outs))
+                            while True:
+                                # outline = task.stdout.readline()
+                                errline = task.stderr.readline()
+                                #if not outline:
+                                    #break
+                                if not errline:
+                                    break                             
+                                #if re.search(pattern, outline) or re.search(pattern, errline):
+                                if re.search(pattern, errline):
+                                    #task.poll()
+                                    #print("match")
+                                    task.kill()
+                                    task.poll()
+                                    #logging.debug(
+                                        #msg='ffmpeg output found to contain "^.*mp3.*overread.*skip.*enddists.*$" errors, to prevent process from infinite loop we killing it {}'.format(
+                                    #str(task.returncode) + ' ' + str(task.pid) + ' '.join(task.args) + '\n'))
+                                    self.wlog.warning(
+                                        msg="""ffmpeg output found to contain "mp3 overread" errors, to prevent process from infinite loop we killing it for file {} """.format(task.input_file))                                
+                                    break
+                                #else:
+                                    #break            
+                    elif task.returncode is 0:
+                        self.pool.remove(task)
+                    else:
+                        #log exit code of task with task args                
+                        outs, errs = task.communicate()
+                        err = 'task: ' + ' '.join(task.args) + '\n returncode: ' + str(task.returncode) +  '\n stdout: ' + outs + '\n stderr: ' + errs
+                        self.dlog.debug(msg=err)
+                        
+                        self.wlog.error(msg= 'ffmpeg failed to convert {} , file will be copied'.format(task.input_file))
+                        
+                        #copy file in case it can't be converted by ffmpeg
+                        copy_file(input_file=task.input_file, output_prefix_folder=task.output_prefix_folder_original)
+                        #shutil.copy2(src=str(task.input_file), dst=str(task.output_prefix_folder))
+                        #remove invalid file
+                        if task.output_file_path.exists(): os.remove(str(task.output_file_path))
+                        #remove task from pool
+                        self.pool.remove(task)
+    
+                except Exception as E:
+                    mess = 'Exception occured on file {}'.format(task.input_file)
+                    self.wlog.error(msg=mess)
+                    self.dlog.debug(E,  exc_info=True, stack_info=True )
+                    task.kill()
 
 
 def scan(path_string, ext_dict_param={}):
@@ -162,10 +157,6 @@ def copy_file(input_file, output_prefix_folder):
     shutil.copy2(src=str(input_file), dst=str(output_prefix_folder), follow_symlinks=False)
 
 
-
-
-
-
 def setup_logger(name, log_file, formatter, level=logging.INFO):
     """Function setup as many loggers as you want"""
 
@@ -177,7 +168,6 @@ def setup_logger(name, log_file, formatter, level=logging.INFO):
     logger.addHandler(handler)
 
     return logger
-
 
 
 def main(argv):
@@ -222,7 +212,7 @@ def main(argv):
     if arguments.input and arguments.output:
         
         
-        ALLOWED_EXTENSIONS = ('.mp3','.wav','.ogg', '.wma','.flac')
+        ALLOWED_EXTENSIONS = ('.mp3','.wav','.ogg', '.wma','.flac','.ape')
         files = scan(arguments.input)
         o_p_f = Path(arguments.output)
         evloop = My_Event_loop_queue()
@@ -258,10 +248,22 @@ def main(argv):
     #DONE FIX copy symlinks, don't follow them
     #DONE ffmpeg non-interactive -nostdin
     #DONE better log output
-    #catch all errors, log them and attempt to continue on next file
+    #DONE catch exceptions on each file, log them and attempt to continue on next file
+    #DONE remove unnecessary files from music2
+    
+    # copy some music to testfolder
+    # trash old raw uncoverted music
+    # trash-empty
+    
+    #DONE add nix expression for ffmpeg with aac to nix-shell
+    # clean up code
+    # write readme.md
+    # remove timeout for stderr.readline()
+    # final execute test on testmusic folder
+    # merge both music folders
     
     #print verbose stats output in the end, like timing, number of errors, files copied, files converted, saved space 
-    #implement pause and continue, save file? remember progress
+    #implement pause and continue, save file? remember progress, pickle?
     #use async subprocess, async pipes, | threads, multiprocessing
     #throw exceptions from ffmpeg class
     #reStructed text docstrings
