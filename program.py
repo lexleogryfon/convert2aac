@@ -269,6 +269,8 @@ def main(argv):
     #reStructed text docstrings
     #readme.md
     #flymake check
+    # fix binary path in Popen
+    # an unicode exceptions when nix-shell invoked with --pure
 
 
 if __name__ == "__main__":
