@@ -10,6 +10,15 @@ CLI audio converter to 32kbps HE v2 AAC, that relies on nixpkgs, ffmpeg, lib_fdk
 
 ## How?
 
+    Installation:
+    Software have self-contained pure nix expression to install correct versions of python, ffmpeg with aac support, dependecies.
+    You must have nix-shell in your system in order to evaluate it. 
+    
+    case 1) you use NixOs 17.09 (tested)
+    case 2) you use nix package manager in another distro (untested, but should work in theory)
+    
+    >git clone https://github.com/lexleogryfon/convert2aac
+    
     usage: program.py [-h] [-s SCAN] [-i INPUT] [-o OUTPUT]
     
     optional arguments:
