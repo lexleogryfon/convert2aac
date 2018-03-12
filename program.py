@@ -214,8 +214,8 @@ def main(argv):
     #DONE add nix expression for ffmpeg with aac to nix-shell
     #DONE fix binary path in Popen
     #FIXED an unicode exceptions when nix-shell invoked with --pure
-    # clean up code
-    # write readme.md
+    #DONE clean up code
+    #DONE write readme.md
     #DONE remove timeout for stderr.readline()
     # fix tags, use python-mutagen or available tag editor https://mutagen.readthedocs.io/en/latest/index.html#real-world-use    
     # final execute test on testmusic folder
