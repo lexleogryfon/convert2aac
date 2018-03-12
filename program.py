@@ -43,7 +43,8 @@ class My_Event_loop_queue:
                         time.sleep(0.1)
                         #work around ffmpeg bug, when ffmpeg process hang out
                         #check for [mp3 @ 0x14aaa20] overread, skip -4 enddists: -1 -1
-                        if os.getloadavg()[0] < 3:
+                        #if os.getloadavg()[0] < 3:
+                        if True:
                             #print(os.getloadavg()[0])
                             #outs, errs = task.communicate() #BUG sets exitcode to 0, blocking
                             pattern = re.compile(r"^.*mp3.*overread.*skip.*enddists.*$",  re.MULTILINE)
@@ -131,7 +132,7 @@ def convert_file(input_file, output_prefix_folder):
     output_file_name = str(input_file.stem) + '.m4a'
     output_file_path = output_prefix_folder / output_file_name
     #spawn non blocking async background process
-    p = subprocess.Popen(['/home/lex/.nix-profile/bin/ffmpeg', '-threads', '1', '-i', str(input_file), '-vn',   '-c:a', 'libfdk_aac', '-profile:a', 'aac_he_v2', '-b:a', '32k', '-y', '-nostdin', str(output_file_path)], universal_newlines=True, stdout=subprocess.PIPE , stderr=subprocess.PIPE)
+    p = subprocess.Popen(['ffmpeg', '-threads', '1', '-i', str(input_file), '-vn',   '-c:a', 'libfdk_aac', '-profile:a', 'aac_he_v2', '-b:a', '32k', '-y', '-nostdin', str(output_file_path)], universal_newlines=True, stdout=subprocess.PIPE , stderr=subprocess.PIPE)
 
     # blocking wait until completion, to get exit code
     #while p.poll() is None:
@@ -250,15 +251,18 @@ def main(argv):
     #DONE better log output
     #DONE catch exceptions on each file, log them and attempt to continue on next file
     #DONE remove unnecessary files from music2
-    
-    # copy some music to testfolder
+
+    #DONE copy some music to testfolder
     # trash old raw uncoverted music
     # trash-empty
     
     #DONE add nix expression for ffmpeg with aac to nix-shell
+    #DONE fix binary path in Popen
+    #FIXED an unicode exceptions when nix-shell invoked with --pure
     # clean up code
     # write readme.md
-    # remove timeout for stderr.readline()
+    #DONE remove timeout for stderr.readline()
+    # fix tags, use python-mutagen or available tag editor https://mutagen.readthedocs.io/en/latest/index.html#real-world-use    
     # final execute test on testmusic folder
     # merge both music folders
     
@@ -267,10 +271,7 @@ def main(argv):
     #use async subprocess, async pipes, | threads, multiprocessing
     #throw exceptions from ffmpeg class
     #reStructed text docstrings
-    #readme.md
     #flymake check
-    # fix binary path in Popen
-    # an unicode exceptions when nix-shell invoked with --pure
 
 
 if __name__ == "__main__":
